@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-LobbyTime.ps1 v2.0 - Interactive Lobby Display Clock
+LobbyTime.ps1 v2.1 - Interactive Lobby Display Clock
 
 .DESCRIPTION
 Creates a responsive HTML clock with advanced customization options, persistent JSON configuration,
@@ -9,9 +9,9 @@ with background selection (Windows 11 wallpapers, preset colors, or custom hex),
 color customization, and date/time format options.
 
 .FEATURES
-- Actions: create | kiosk | normal | install | remove | menu
+- Actions: create | kiosk | normal | menu
 - Background options:
-  * Windows 11 default wallpapers (auto-discovered)
+  * Windows 11 default wallpapers (auto-discovered, including subdirectories)
   * Preset solid colors (Red, Green, Blue, Cyan, Magenta, Yellow, Black, Gray)
   * Custom hex colors (6-digit, 3-digit, with/without # prefix, case-insensitive)
 - Persistent JSON config (kiosk-config.json) stored next to script; auto-created on first run
@@ -19,21 +19,17 @@ color customization, and date/time format options.
 - Font customization: size, family, color presets
 - Time/date format tokens for custom display
 - Copies validated PNG/JPG backgrounds into script folder
-- Embedded .bat template for ProgramData Startup installation
 - CLI parameter overrides (saved unless -DebugMode is used)
 - HTML/CSS inline for single-file portability
 
 .PARAMETER Action
-The action to perform: create, kiosk, normal, install, remove, or menu (default: menu)
+The action to perform: create, kiosk, normal, or menu (default: menu)
 
 .PARAMETER ScriptPath
 Path to this script. If not supplied, auto-resolved to the running script.
 
 .PARAMETER HtmlPath
 Path where kiosk.html will be written. Defaults to same folder as ScriptPath.
-
-.PARAMETER StartupBatName
-Name of the .bat file placed in Windows Startup (default: Start-Kiosk.bat)
 
 .PARAMETER BackgroundImage
 Path to source PNG/JPG to copy as background. Optional; validated before copy.
@@ -67,28 +63,22 @@ powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1
 # Create HTML with custom background and launch in kiosk mode
 powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1 -Action kiosk -BackgroundImage "C:\path\to\image.jpg"
 
-.EXAMPLE
-# Install autorun .bat (requires admin)
-powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1 -Action install
-
 .VERSION
-2.0 - Added background menu (Windows 11 wallpapers, preset colors, custom hex), back/exit navigation in settings
+2.1 - Removed background prompts from HTML creation options, removed autorun functionality, fixed property assignment errors
 
 .NOTES
 - Requires Windows 7+ and PowerShell 3+
 - Edge integration requires Microsoft Edge (msedge.exe)
-- Admin rights needed for ProgramData Startup installation
 - Config file is JSON; can be manually edited
 - HTML is self-contained with embedded CSS/JavaScript
 #>
 
 param(
-  [ValidateSet('create','kiosk','normal','install','remove','menu')]
+  [ValidateSet('create','kiosk','normal','menu')]
   [string]$Action = 'menu',
 
   [string]$ScriptPath = $null,
   [string]$HtmlPath = $null,
-  [string]$StartupBatName = "Start-Kiosk.bat",
   [string]$BackgroundImage = $null,
   [string]$TimeFontSize = $null,
   [string]$DateFontSize = $null,
@@ -212,7 +202,7 @@ function Load-Config {
       $json = Get-Content -Path $ConfigPath -Raw -ErrorAction Stop
       return $json | ConvertFrom-Json -ErrorAction Stop
     } catch {
-      Write-Warning "Failed to read config; using defaults. ($_ )"
+      Write-Warning "Failed to read config; using defaults. ($_)"
     }
   }
   return [PSCustomObject]@{
@@ -328,23 +318,25 @@ function Copy-BackgroundIfValid {
 }
 
 # -----------------------
-# Discover Windows 11 default wallpapers
-# Returns: hashtable with filename => full path
+# Discover Windows 11 default wallpapers (recursive, including subdirectories)
+# Returns: ordered hashtable with display label => full path
 # -----------------------
 
 function Get-Windows11Wallpapers {
   $wallpapers = @{}
   if (Test-Path $Windows11WallpapersPath) {
-    $files = @(Get-ChildItem -Path $Windows11WallpapersPath -Include "*.jpg", "*.png" -ErrorAction SilentlyContinue)
+    $files = @(Get-ChildItem -Path $Windows11WallpapersPath -Include "*.jpg", "*.png" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer -eq $false })
     foreach ($file in $files) {
-      $wallpapers[$file.Name] = $file.FullPath
+      $relativePath = $file.FullName -replace [regex]::Escape("$Windows11WallpapersPath\"), ""
+      $displayLabel = $relativePath
+      $wallpapers[$displayLabel] = $file.FullPath
     }
   }
   return $wallpapers
 }
 
 # -----------------------
-# Edge detection and launch (kiosk mode)
+# Edge detection and launch
 # -----------------------
 
 function Find-Edge {
@@ -382,7 +374,7 @@ function Start-EdgeKiosk {
     "--no-first-run"
   )
   Write-Host "Starting Edge in kiosk mode..."
-  Start-Process -FilePath $edge -ArgumentList $args -WindowStyle Hidden
+  Start-Process -FilePath $edge -ArgumentList $args -WindowStyle Hidden | Out-Null
   return $true
 }
 
@@ -398,67 +390,8 @@ function Start-EdgeNormal {
     $HtmlFile
   )
   Write-Host "Starting Edge in normal mode..."
-  Start-Process -FilePath $edge -ArgumentList $args
+  Start-Process -FilePath $edge -ArgumentList $args | Out-Null
   return $true
-}
-
-# -----------------------
-# Startup .bat installation (ProgramData\Startup)
-# -----------------------
-
-function Install-StartupBat {
-  param([string]$ScriptToCall, [string]$HtmlFile, [string]$BatName)
-  $startupFolder = Join-Path -Path $env:ProgramData -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup"
-  $batPath = Join-Path -Path $startupFolder -ChildPath $BatName
-
-  $escapedScript = $ScriptToCall -replace '\\','\\'
-  $escapedHtml = $HtmlFile -replace '\\','\\'
-
-  $batContent = @"
-@echo off
-REM This .bat starts LobbyTime.ps1 in kiosk mode.
-REM Place in: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\Start-Kiosk.bat
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action [...]"
-"@
-
-  try {
-    if (-not (Test-Path $startupFolder)) { throw "Startup folder not found: $startupFolder" }
-    
-    $testFile = Join-Path $startupFolder ".__kiosk_test__.tmp"
-    try { 
-      New-Item -Path $testFile -ItemType File -Force | Out-Null
-      Remove-Item $testFile -Force 
-    } catch { 
-      throw "No write permission to $startupFolder. Run as Administrator to install the startup .bat."
-    }
-    
-    $batContent | Out-File -FilePath $batPath -Encoding ASCII -Force
-    Write-Host "Created startup .bat at: $batPath"
-    return $true
-  } catch {
-    Write-Error "Failed to create startup .bat: $_"
-    return $false
-  }
-}
-
-function Remove-StartupBat {
-  param([string]$BatName)
-  $startupFolder = Join-Path -Path $env:ProgramData -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup"
-  $batPath = Join-Path -Path $startupFolder -ChildPath $BatName
-  
-  if (Test-Path $batPath) {
-    try { 
-      Remove-Item -Path $batPath -Force
-      Write-Host "Removed: $batPath"
-      return $true 
-    } catch { 
-      Write-Error "Failed to remove $($batPath): $_"
-      return $false 
-    }
-  } else {
-    Write-Warning "Startup .bat not found: $batPath"
-    return $false
-  }
 }
 
 # -----------------------
@@ -825,15 +758,13 @@ function Show-Menu {
   $continueMenu = $true
   while ($continueMenu) {
     Clear-Host
-    Write-Host "=== LobbyTime v2.0 - Kiosk Display Helper ==="
+    Write-Host "=== LobbyTime v2.1 - Kiosk Display Helper ==="
     Write-Host ""
     Write-Host "1) Create HTML only"
     Write-Host "2) Create HTML and launch Edge (Kiosk Fullscreen)"
     Write-Host "3) Create HTML and launch Edge (Normal Window)"
-    Write-Host "4) Install autorun .bat to ProgramData Startup (requires admin)"
-    Write-Host "5) Remove autorun .bat from ProgramData Startup"
-    Write-Host "6) Edit settings"
-    Write-Host "7) Exit"
+    Write-Host "4) Edit settings"
+    Write-Host "5) Exit"
     Write-Host ""
     Write-Host "Current settings (from config):"
     Write-Host "  Background: $(if ($Config.BackgroundFileName) { $Config.BackgroundFileName } elseif ($Config.BackgroundColor) { $Config.BackgroundColor } else { 'Default (dark blue)' })"
@@ -844,56 +775,27 @@ function Show-Menu {
     Write-Host "  Time Format: $($Config.TimeFormat)"
     Write-Host "  Date Format: $($Config.DateFormat)"
     Write-Host ""
-    $choice = Read-Host "Enter choice (1-7)"
+    $choice = Read-Host "Enter choice (1-5)"
     switch ($choice) {
       '1' {
-         $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
-         if ($inputBg) {
-           $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
-         }
          New-KioskHtml -Path $HtmlPath -Config $Config
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
          Read-Host "Press Enter to continue..."
       }
       '2' {
-         $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
-         if ($inputBg) {
-           $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
-         }
-         if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeKiosk -HtmlFile $HtmlPath }
+         if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeKiosk -HtmlFile $HtmlPath | Out-Null }
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
          Read-Host "Press Enter to continue..."
       }
       '3' {
-         $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
-         if ($inputBg) {
-           $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
-         }
-         if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeNormal -HtmlFile $HtmlPath }
+         if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeNormal -HtmlFile $HtmlPath | Out-Null }
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
          Read-Host "Press Enter to continue..."
       }
       '4' {
-         $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
-         if ($inputBg) {
-           $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
-         }
-         if (New-KioskHtml -Path $HtmlPath -Config $Config) { Install-StartupBat -ScriptToCall $ScriptPath -HtmlFile $HtmlPath -BatName $StartupBatName }
-         if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
-         Read-Host "Press Enter to continue..."
-      }
-      '5' {
-         Remove-StartupBat -BatName $StartupBatName
-         Read-Host "Press Enter to continue..."
-      }
-      '6' {
          Edit-Settings -Config $Config -ConfigPath $ConfigPath
       }
-      '7' { $continueMenu = $false }
+      '5' { $continueMenu = $false }
       default { Write-Warning "Invalid option"; Read-Host "Press Enter to continue..." }
     }
   }
@@ -944,12 +846,6 @@ switch ($Action) {
   }
   'normal' {
     if (New-KioskHtml -Path $HtmlPath -Config $config) { Start-EdgeNormal -HtmlFile $HtmlPath | Out-Null }
-  }
-  'install' {
-    if (New-KioskHtml -Path $HtmlPath -Config $config) { Install-StartupBat -ScriptToCall $ScriptPath -HtmlFile $HtmlPath -BatName $StartupBatName | Out-Null }
-  }
-  'remove' {
-    Remove-StartupBat -BatName $StartupBatName | Out-Null
   }
   'menu' {
     Show-Menu -Config $config -ConfigPath $ConfigPath
