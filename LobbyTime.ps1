@@ -333,7 +333,8 @@ function New-KioskHtml {
 # -----------------------
 function Show-Menu {
   param([PSObject]$Config, [string]$ConfigPath)
-  while ($true) {
+  $continueMenu = $true
+  while ($continueMenu) {
     Clear-Host
     Write-Host "Kiosk helper - choose an action:"
     Write-Host "1) Create HTML only"
@@ -411,7 +412,7 @@ function Show-Menu {
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
          Read-Host "Press Enter to continue..."
       }
-      '7' { break }
+      '7' { $continueMenu = $false }
       default { Write-Warning "Invalid option"; Read-Host "Press Enter to continue..." }
     }
   }
