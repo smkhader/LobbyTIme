@@ -41,6 +41,45 @@ $ScriptFolder = Split-Path -Parent $ScriptPath
 if (-not $HtmlPath) { $HtmlPath = Join-Path -Path $ScriptFolder -ChildPath "kiosk.html" }
 
 # -----------------------
+# Human-readable preset options
+# -----------------------
+$FontSizePresets = @{
+  "Small (5vw)"        = "5vw"
+  "Medium (9vw)"       = "9vw"
+  "Large (12vw)"       = "12vw"
+  "Extra Large (15vw)" = "15vw"
+}
+
+$FontFamilyPresets = @{
+  "Default (Segoe UI, Roboto, Arial)" = "Segoe UI, Roboto, Arial, sans-serif"
+  "Modern (Helvetica, Arial)"         = "Helvetica, Arial, sans-serif"
+  "Monospace (Courier New)"           = "'Courier New', monospace"
+  "Serif (Georgia)"                   = "Georgia, serif"
+}
+
+$FontColorPresets = @{
+  "White"     = "#FFFFFF"
+  "Light Gray" = "#E0E0E0"
+  "Yellow"   = "#FFFF00"
+  "Cyan"     = "#00FFFF"
+  "Green"    = "#00FF00"
+}
+
+$TimeFormatPresets = @{
+  "12-hour (2:45 PM)"            = "hh:mm A"
+  "12-hour with seconds"         = "hh:mm:ss A"
+  "24-hour (14:45)"              = "HH:mm"
+  "24-hour with seconds"         = "HH:mm:ss"
+}
+
+$DateFormatPresets = @{
+  "Full (Monday, January 5, 2026)" = "dddd, MMMM D, YYYY"
+  "Short (Mon, Jan 5, 2026)"       = "ddd, MMM D, YYYY"
+  "Date only (01/05/2026)"         = "MM/DD/YYYY"
+  "Month and day (January 5)"      = "MMMM D"
+}
+
+# -----------------------
 # Config helpers
 # -----------------------
 function Get-ConfigPath { param([string]$ScriptPath) Join-Path -Path (Split-Path -Parent $ScriptPath) -ChildPath "kiosk-config.json" }
@@ -62,7 +101,7 @@ function Load-Config {
     FontFamily         = "Segoe UI, Roboto, Arial, sans-serif"
     FontColor          = "#FFFFFF"
     OverlayOpacity     = 0.18
-    TimeFormat         = "HH:mm:ss"
+    TimeFormat         = "hh:mm A"
     DateFormat         = "dddd, MMMM D, YYYY"
     TextShadow         = "0 2px 6px rgba(0,0,0,0.6)"
   }
@@ -329,6 +368,23 @@ function New-KioskHtml {
 }
 
 # -----------------------
+# Menu helper: Show options with indices and get choice
+# -----------------------
+function Show-MenuOptions {
+  param([hashtable]$Options)
+  $choices = @($Options.Keys)
+  for ($i = 0; $i -lt $choices.Count; $i++) {
+    Write-Host "$($i+1)) $($choices[$i])"
+  }
+  $choice = Read-Host "Enter choice (1-$($choices.Count))"
+  $index = [int]$choice - 1
+  if ($index -ge 0 -and $index -lt $choices.Count) {
+    return $Options[$choices[$index]]
+  }
+  return $null
+}
+
+# -----------------------
 # Interactive menu
 # -----------------------
 function Show-Menu {
@@ -346,7 +402,13 @@ function Show-Menu {
     Write-Host "7) Exit"
     Write-Host ""
     Write-Host "Current settings (from config):"
-    $Config | Format-List
+    Write-Host "  Time Font Size: $($Config.TimeFontSize)"
+    Write-Host "  Date Font Size: $($Config.DateFontSize)"
+    Write-Host "  Font Family: $($Config.FontFamily)"
+    Write-Host "  Font Color: $($Config.FontColor)"
+    Write-Host "  Time Format: $($Config.TimeFormat)"
+    Write-Host "  Date Format: $($Config.DateFormat)"
+    Write-Host ""
     $choice = Read-Host "Enter choice (1-7)"
     switch ($choice) {
       '1' {
@@ -394,21 +456,40 @@ function Show-Menu {
          Read-Host "Press Enter to continue..."
       }
       '6' {
-         Write-Host "Leave blank to keep current value."
-         $val = Read-Host "Time font size (e.g. 9vw or 120px) [current: $($Config.TimeFontSize)]"
-         if ($val -ne '') { $Config.TimeFontSize = $val }
-         $val = Read-Host "Date font size (e.g. 3vw) [current: $($Config.DateFontSize)]"
-         if ($val -ne '') { $Config.DateFontSize = $val }
-         $val = Read-Host "Font family (CSS font-family) [current: $($Config.FontFamily)]"
-         if ($val -ne '') { $Config.FontFamily = $val }
-         $val = Read-Host "Font color (hex) [current: $($Config.FontColor)]"
-         if ($val -ne '') { $Config.FontColor = $val }
-         $val = Read-Host "Overlay opacity 0.0-0.9 [current: $($Config.OverlayOpacity)]"
-         if ($val -ne '') { [double]$Config.OverlayOpacity = [double]$val }
-         $val = Read-Host "Time format tokens (e.g. HH:mm:ss) [current: $($Config.TimeFormat)]"
-         if ($val -ne '') { $Config.TimeFormat = $val }
-         $val = Read-Host "Date format tokens (e.g. dddd, MMMM D, YYYY) [current: $($Config.DateFormat)]"
-         if ($val -ne '') { $Config.DateFormat = $val }
+         Clear-Host
+         Write-Host "=== Edit Settings ==="
+         Write-Host ""
+
+         Write-Host "Time Font Size (currently: $($Config.TimeFontSize))"
+         $selected = Show-MenuOptions $FontSizePresets
+         if ($selected) { $Config.TimeFontSize = $selected }
+         Write-Host ""
+
+         Write-Host "Date Font Size (currently: $($Config.DateFontSize))"
+         $selected = Show-MenuOptions $FontSizePresets
+         if ($selected) { $Config.DateFontSize = $selected }
+         Write-Host ""
+
+         Write-Host "Font Family (currently: $($Config.FontFamily))"
+         $selected = Show-MenuOptions $FontFamilyPresets
+         if ($selected) { $Config.FontFamily = $selected }
+         Write-Host ""
+
+         Write-Host "Font Color (currently: $($Config.FontColor))"
+         $selected = Show-MenuOptions $FontColorPresets
+         if ($selected) { $Config.FontColor = $selected }
+         Write-Host ""
+
+         Write-Host "Time Format (currently: $($Config.TimeFormat))"
+         $selected = Show-MenuOptions $TimeFormatPresets
+         if ($selected) { $Config.TimeFormat = $selected }
+         Write-Host ""
+
+         Write-Host "Date Format (currently: $($Config.DateFormat))"
+         $selected = Show-MenuOptions $DateFormatPresets
+         if ($selected) { $Config.DateFormat = $selected }
+         Write-Host ""
+
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
          Read-Host "Press Enter to continue..."
       }
