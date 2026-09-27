@@ -180,6 +180,26 @@ $BackgroundColorPresets = @{
 # Config file helpers
 # -----------------------
 
+function Set-ConfigProperty {
+  param(
+    [Parameter(Mandatory = $true)] [object]$Config,
+    [Parameter(Mandatory = $true)] [string]$PropertyName,
+    [Parameter(Mandatory = $false)] [object]$Value = $null
+  )
+
+  if ($null -eq $Config) {
+    return
+  }
+
+  $property = $Config.PSObject.Properties[$PropertyName]
+  if ($null -ne $property) {
+    $Config.$PropertyName = $Value
+    return
+  }
+
+  $Config | Add-Member -NotePropertyName $PropertyName -NotePropertyValue $Value -Force
+}
+
 function Get-ConfigPath {
   param([string]$ScriptPath)
   Join-Path -Path (Split-Path -Parent $ScriptPath) -ChildPath "kiosk-config.json"
@@ -192,7 +212,7 @@ function Load-Config {
       $json = Get-Content -Path $ConfigPath -Raw -ErrorAction Stop
       return $json | ConvertFrom-Json -ErrorAction Stop
     } catch {
-      Write-Warning "Failed to read config; using defaults. ($_)"
+      Write-Warning "Failed to read config; using defaults. ($_ )"
     }
   }
   return [PSCustomObject]@{
@@ -398,7 +418,7 @@ function Install-StartupBat {
 @echo off
 REM This .bat starts LobbyTime.ps1 in kiosk mode.
 REM Place in: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\Start-Kiosk.bat
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action ...
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action [...]"
 "@
 
   try {
@@ -711,8 +731,8 @@ function Edit-Settings {
     Write-Host "Background (currently: $(if ($Config.BackgroundFileName) { $Config.BackgroundFileName } elseif ($Config.BackgroundColor) { $Config.BackgroundColor } else { 'Default (dark blue)' }))"
     $result = Show-BackgroundMenu -Config $Config
     if ($result.action -eq "select") {
-      $Config.BackgroundFileName = $result.fileName
-      $Config.BackgroundColor = $result.color
+      Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $result.fileName
+      Set-ConfigProperty -Config $Config -PropertyName "BackgroundColor" -Value $result.color
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -724,7 +744,7 @@ function Edit-Settings {
     Write-Host "Time Font Size (currently: $($Config.TimeFontSize))"
     $result = Show-MenuOptions $FontSizePresets
     if ($result.action -eq "select") {
-      $Config.TimeFontSize = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "TimeFontSize" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -736,7 +756,7 @@ function Edit-Settings {
     Write-Host "Date Font Size (currently: $($Config.DateFontSize))"
     $result = Show-MenuOptions $FontSizePresets
     if ($result.action -eq "select") {
-      $Config.DateFontSize = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "DateFontSize" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -748,7 +768,7 @@ function Edit-Settings {
     Write-Host "Font Family (currently: $($Config.FontFamily))"
     $result = Show-MenuOptions $FontFamilyPresets
     if ($result.action -eq "select") {
-      $Config.FontFamily = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "FontFamily" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -760,7 +780,7 @@ function Edit-Settings {
     Write-Host "Font Color (currently: $($Config.FontColor))"
     $result = Show-MenuOptions $FontColorPresets
     if ($result.action -eq "select") {
-      $Config.FontColor = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "FontColor" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -772,7 +792,7 @@ function Edit-Settings {
     Write-Host "Time Format (currently: $($Config.TimeFormat))"
     $result = Show-MenuOptions $TimeFormatPresets
     if ($result.action -eq "select") {
-      $Config.TimeFormat = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "TimeFormat" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -784,7 +804,7 @@ function Edit-Settings {
     Write-Host "Date Format (currently: $($Config.DateFormat))"
     $result = Show-MenuOptions $DateFormatPresets
     if ($result.action -eq "select") {
-      $Config.DateFormat = $result.value
+      Set-ConfigProperty -Config $Config -PropertyName "DateFormat" -Value $result.value
     } elseif ($result.action -eq "exit") {
       $continueSettings = $false
       if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -830,7 +850,7 @@ function Show-Menu {
          $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
          if ($inputBg) {
            $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { $Config.BackgroundFileName = $bgFile }
+           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
          }
          New-KioskHtml -Path $HtmlPath -Config $Config
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -840,7 +860,7 @@ function Show-Menu {
          $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
          if ($inputBg) {
            $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { $Config.BackgroundFileName = $bgFile }
+           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
          }
          if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeKiosk -HtmlFile $HtmlPath }
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -850,7 +870,7 @@ function Show-Menu {
          $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
          if ($inputBg) {
            $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { $Config.BackgroundFileName = $bgFile }
+           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
          }
          if (New-KioskHtml -Path $HtmlPath -Config $Config) { Start-EdgeNormal -HtmlFile $HtmlPath }
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -860,7 +880,7 @@ function Show-Menu {
          $inputBg = Read-Host "Path to background image (PNG/JPG) or leave blank to keep current"
          if ($inputBg) {
            $bgFile = Copy-BackgroundIfValid -SourcePath $inputBg -DestFolder $ScriptFolder
-           if ($bgFile) { $Config.BackgroundFileName = $bgFile }
+           if ($bgFile) { Set-ConfigProperty -Config $Config -PropertyName "BackgroundFileName" -Value $bgFile }
          }
          if (New-KioskHtml -Path $HtmlPath -Config $Config) { Install-StartupBat -ScriptToCall $ScriptPath -HtmlFile $HtmlPath -BatName $StartupBatName }
          if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
@@ -898,14 +918,14 @@ if (-not $ConfigExistsBefore -and -not $DebugMode) {
 # Apply CLI parameter overrides
 if ($PSBoundParameters.ContainsKey('BackgroundImage') -and $BackgroundImage) {
   $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage -DestFolder $ScriptFolder
-  if ($copied) { $config.BackgroundFileName = $copied }
+  if ($copied) { Set-ConfigProperty -Config $config -PropertyName "BackgroundFileName" -Value $copied }
 }
-if ($PSBoundParameters.ContainsKey('TimeFontSize') -and $TimeFontSize) { $config.TimeFontSize = $TimeFontSize }
-if ($PSBoundParameters.ContainsKey('DateFontSize') -and $DateFontSize) { $config.DateFontSize = $DateFontSize }
-if ($PSBoundParameters.ContainsKey('FontFamily') -and $FontFamily) { $config.FontFamily = $FontFamily }
-if ($PSBoundParameters.ContainsKey('FontColor') -and $FontColor) { $config.FontColor = $FontColor }
-if ($PSBoundParameters.ContainsKey('TimeFormat') -and $TimeFormat) { $config.TimeFormat = $TimeFormat }
-if ($PSBoundParameters.ContainsKey('DateFormat') -and $DateFormat) { $config.DateFormat = $DateFormat }
+if ($PSBoundParameters.ContainsKey('TimeFontSize') -and $TimeFontSize) { Set-ConfigProperty -Config $config -PropertyName "TimeFontSize" -Value $TimeFontSize }
+if ($PSBoundParameters.ContainsKey('DateFontSize') -and $DateFontSize) { Set-ConfigProperty -Config $config -PropertyName "DateFontSize" -Value $DateFontSize }
+if ($PSBoundParameters.ContainsKey('FontFamily') -and $FontFamily) { Set-ConfigProperty -Config $config -PropertyName "FontFamily" -Value $FontFamily }
+if ($PSBoundParameters.ContainsKey('FontColor') -and $FontColor) { Set-ConfigProperty -Config $config -PropertyName "FontColor" -Value $FontColor }
+if ($PSBoundParameters.ContainsKey('TimeFormat') -and $TimeFormat) { Set-ConfigProperty -Config $config -PropertyName "TimeFormat" -Value $TimeFormat }
+if ($PSBoundParameters.ContainsKey('DateFormat') -and $DateFormat) { Set-ConfigProperty -Config $config -PropertyName "DateFormat" -Value $DateFormat }
 
 # Save config with CLI overrides (unless DebugMode)
 if (-not $DebugMode) {
