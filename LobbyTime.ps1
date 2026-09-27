@@ -127,11 +127,22 @@ function Copy-BackgroundIfValid {
 # -----------------------
 function Find-Edge {
   $candidates = @(
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe"
-  )
-  foreach($p in $candidates) { if (Test-Path $p) { return $p } }
-  try { $cmd = (Get-Command msedge -ErrorAction SilentlyContinue).Source; if ($cmd) { return $cmd } } catch {}
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) "Microsoft\Edge\Application\msedge.exe"),
+    (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) "Microsoft\Edge\Application\msedge.exe"),
+    "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe"
+  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+  if ($candidates.Count -gt 0) {
+    return $candidates[0]
+  }
+
+  try {
+    $command = Get-Command msedge.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+  } catch {}
+
   return $null
 }
 
@@ -139,7 +150,13 @@ function Start-EdgeKiosk { param([string]$HtmlFile)
   $edge = Find-Edge
   if (-not $edge) { Write-Error "Microsoft Edge (msedge.exe) not found."; return $false }
   $uri = "file:///" + ($HtmlFile -replace '\\','/')
-  $args = @("--kiosk", $uri, "--edge-kiosk-type=fullscreen", "--no-first-run")
+  $args = @(
+    "--profile-directory=Default",
+    "--kiosk",
+    $uri,
+    "--edge-kiosk-type=fullscreen",
+    "--no-first-run"
+  )
   Write-Host "Starting Edge in kiosk mode..."
   Start-Process -FilePath $edge -ArgumentList $args -WindowStyle Hidden
   return $true
@@ -148,7 +165,12 @@ function Start-EdgeKiosk { param([string]$HtmlFile)
 function Start-EdgeNormal { param([string]$HtmlFile)
   $edge = Find-Edge
   if (-not $edge) { Write-Error "Microsoft Edge (msedge.exe) not found."; return $false }
-  $args = @($HtmlFile, "--start-maximized", "--no-first-run")
+  $args = @(
+    "--profile-directory=Default",
+    "--start-maximized",
+    "--no-first-run",
+    $HtmlFile
+  )
   Write-Host "Starting Edge in normal mode..."
   Start-Process -FilePath $edge -ArgumentList $args
   return $true
