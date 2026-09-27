@@ -1,47 +1,118 @@
 <#
-LobbyTime.ps1
-Creates a lobby HTML clock, supports background images, persistent JSON config, and can launch Edge in kiosk/normal mode.
-Features:
- - Actions: create | kiosk | normal | install | remove | menu
- - Copies validated PNG/JPG backgrounds into the script folder as background.png or background.jpg
- - Uses kiosk-config.json (next to the script) to persist settings; created automatically on first run (unless -DebugMode is used)
- - Embedded .bat template used for ProgramData Startup installation
- - CLI options override config and are saved unless -DebugMode is provided
+.SYNOPSIS
+LobbyTime.ps1 v2.0 - Interactive Lobby Display Clock
+
+.DESCRIPTION
+Creates a responsive HTML clock with advanced customization options, persistent JSON configuration,
+and Microsoft Edge integration (kiosk or normal mode). Features a fully interactive settings menu
+with background selection (Windows 11 wallpapers, preset colors, or custom hex), font sizing, 
+color customization, and date/time format options.
+
+.FEATURES
+- Actions: create | kiosk | normal | install | remove | menu
+- Background options:
+  * Windows 11 default wallpapers (auto-discovered)
+  * Preset solid colors (Red, Green, Blue, Cyan, Magenta, Yellow, Black, Gray)
+  * Custom hex colors (6-digit, 3-digit, with/without # prefix, case-insensitive)
+- Persistent JSON config (kiosk-config.json) stored next to script; auto-created on first run
+- Interactive menu with back/exit navigation for settings
+- Font customization: size, family, color presets
+- Time/date format tokens for custom display
+- Copies validated PNG/JPG backgrounds into script folder
+- Embedded .bat template for ProgramData Startup installation
+- CLI parameter overrides (saved unless -DebugMode is used)
+- HTML/CSS inline for single-file portability
+
+.PARAMETER Action
+The action to perform: create, kiosk, normal, install, remove, or menu (default: menu)
+
+.PARAMETER ScriptPath
+Path to this script. If not supplied, auto-resolved to the running script.
+
+.PARAMETER HtmlPath
+Path where kiosk.html will be written. Defaults to same folder as ScriptPath.
+
+.PARAMETER StartupBatName
+Name of the .bat file placed in Windows Startup (default: Start-Kiosk.bat)
+
+.PARAMETER BackgroundImage
+Path to source PNG/JPG to copy as background. Optional; validated before copy.
+
+.PARAMETER TimeFontSize
+Time display font size (e.g., "9vw", "120px"). Optional; overrides config.
+
+.PARAMETER DateFontSize
+Date display font size (e.g., "3vw", "40px"). Optional; overrides config.
+
+.PARAMETER FontFamily
+Font family CSS string (e.g., "Segoe UI, Arial, sans-serif"). Optional; overrides config.
+
+.PARAMETER FontColor
+Text color hex value (e.g., "#FFFFFF"). Optional; overrides config.
+
+.PARAMETER TimeFormat
+Time display format using tokens (HH, hh, mm, ss, A). Optional; overrides config.
+
+.PARAMETER DateFormat
+Date display format using tokens (YYYY, MMMM, dddd, D, etc). Optional; overrides config.
+
+.PARAMETER DebugMode
+If set, prevents writing changes to the config file (useful for testing).
+
+.EXAMPLE
+# Interactive menu
+powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1
+
+.EXAMPLE
+# Create HTML with custom background and launch in kiosk mode
+powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1 -Action kiosk -BackgroundImage "C:\path\to\image.jpg"
+
+.EXAMPLE
+# Install autorun .bat (requires admin)
+powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1 -Action install
+
+.VERSION
+2.0 - Added background menu (Windows 11 wallpapers, preset colors, custom hex), back/exit navigation in settings
+
+.NOTES
+- Requires Windows 7+ and PowerShell 3+
+- Edge integration requires Microsoft Edge (msedge.exe)
+- Admin rights needed for ProgramData Startup installation
+- Config file is JSON; can be manually edited
+- HTML is self-contained with embedded CSS/JavaScript
 #>
 
 param(
   [ValidateSet('create','kiosk','normal','install','remove','menu')]
   [string]$Action = 'menu',
 
-  [string]$ScriptPath = $null,      # If not supplied, resolved to the running script path
-  [string]$HtmlPath = $null,        # If not supplied, defaults to same folder as ScriptPath\kiosk.html
-
+  [string]$ScriptPath = $null,
+  [string]$HtmlPath = $null,
   [string]$StartupBatName = "Start-Kiosk.bat",
-
-  [string]$BackgroundImage = $null,    # path to source image (PNG/JPG) - optional
-
-  [string]$TimeFontSize = $null,       # e.g. "9vw" or "120px" - optional
-  [string]$DateFontSize = $null,       # e.g. "3vw" - optional
-  [string]$FontFamily = $null,         # e.g. "Segoe UI, Roboto, Arial, sans-serif"
-  [string]$FontColor = $null,          # hex color e.g. "#FFFFFF"
-  [string]$TimeFormat = $null,         # tokens: HH, hh, mm, ss, A, etc.
-  [string]$DateFormat = $null,         # tokens: dddd, MMMM, D, YYYY, etc.
-
-  [switch]$DebugMode                      # if set, do not write changes to the config file
+  [string]$BackgroundImage = $null,
+  [string]$TimeFontSize = $null,
+  [string]$DateFontSize = $null,
+  [string]$FontFamily = $null,
+  [string]$FontColor = $null,
+  [string]$TimeFormat = $null,
+  [string]$DateFormat = $null,
+  [switch]$DebugMode
 )
 
 # -----------------------
-# Resolve script/install paths
+# Path resolution
 # -----------------------
 if (-not $ScriptPath) {
-  # Prefer $PSCommandPath (PowerShell >= 3) else fall back to MyInvocation
   if ($PSCommandPath) { $ScriptPath = $PSCommandPath } else { $ScriptPath = $MyInvocation.MyCommand.Definition }
 }
 $ScriptFolder = Split-Path -Parent $ScriptPath
 if (-not $HtmlPath) { $HtmlPath = Join-Path -Path $ScriptFolder -ChildPath "kiosk.html" }
 
+# Windows 11 default wallpapers location
+$Windows11WallpapersPath = "$env:WINDIR\Web\Wallpaper\Windows"
+
 # -----------------------
-# Human-readable preset options
+# Font size presets
 # -----------------------
 $FontSizePresets = @{
   "Small (5vw)"        = "5vw"
@@ -50,6 +121,9 @@ $FontSizePresets = @{
   "Extra Large (15vw)" = "15vw"
 }
 
+# -----------------------
+# Font family presets
+# -----------------------
 $FontFamilyPresets = @{
   "Default (Segoe UI, Roboto, Arial)" = "Segoe UI, Roboto, Arial, sans-serif"
   "Modern (Helvetica, Arial)"         = "Helvetica, Arial, sans-serif"
@@ -57,14 +131,20 @@ $FontFamilyPresets = @{
   "Serif (Georgia)"                   = "Georgia, serif"
 }
 
+# -----------------------
+# Text color presets
+# -----------------------
 $FontColorPresets = @{
-  "White"     = "#FFFFFF"
+  "White"      = "#FFFFFF"
   "Light Gray" = "#E0E0E0"
-  "Yellow"   = "#FFFF00"
-  "Cyan"     = "#00FFFF"
-  "Green"    = "#00FF00"
+  "Yellow"     = "#FFFF00"
+  "Cyan"       = "#00FFFF"
+  "Green"      = "#00FF00"
 }
 
+# -----------------------
+# Time format presets
+# -----------------------
 $TimeFormatPresets = @{
   "12-hour (2:45 PM)"            = "hh:mm A"
   "12-hour with seconds"         = "hh:mm:ss A"
@@ -72,6 +152,9 @@ $TimeFormatPresets = @{
   "24-hour with seconds"         = "HH:mm:ss"
 }
 
+# -----------------------
+# Date format presets
+# -----------------------
 $DateFormatPresets = @{
   "Full (Monday, January 5, 2026)" = "dddd, MMMM D, YYYY"
   "Short (Mon, Jan 5, 2026)"       = "ddd, MMM D, YYYY"
@@ -80,9 +163,27 @@ $DateFormatPresets = @{
 }
 
 # -----------------------
-# Config helpers
+# Background color presets (RGBCMY + Black + Gray)
 # -----------------------
-function Get-ConfigPath { param([string]$ScriptPath) Join-Path -Path (Split-Path -Parent $ScriptPath) -ChildPath "kiosk-config.json" }
+$BackgroundColorPresets = @{
+  "Red"      = "#FF0000"
+  "Green"    = "#00FF00"
+  "Blue"     = "#0000FF"
+  "Cyan"     = "#00FFFF"
+  "Magenta"  = "#FF00FF"
+  "Yellow"   = "#FFFF00"
+  "Black"    = "#000000"
+  "Gray"     = "#808080"
+}
+
+# -----------------------
+# Config file helpers
+# -----------------------
+
+function Get-ConfigPath {
+  param([string]$ScriptPath)
+  Join-Path -Path (Split-Path -Parent $ScriptPath) -ChildPath "kiosk-config.json"
+}
 
 function Load-Config {
   param([string]$ConfigPath)
@@ -95,7 +196,8 @@ function Load-Config {
     }
   }
   return [PSCustomObject]@{
-    BackgroundFileName = ""            # stored file name (background.png or background.jpg) relative to script folder
+    BackgroundFileName = ""
+    BackgroundColor    = ""
     TimeFontSize       = "9vw"
     DateFontSize       = "3vw"
     FontFamily         = "Segoe UI, Roboto, Arial, sans-serif"
@@ -120,8 +222,38 @@ function Save-Config {
 }
 
 # -----------------------
-# Image validation + copy
+# Hex color validation & normalization
+# Accepts: #FFFFFF, FFFFFF, #FFF, FFF (case-insensitive)
+# Returns: #RRGGBB format or $null if invalid
 # -----------------------
+
+function Normalize-HexColor {
+  param([string]$ColorInput)
+  $ColorInput = $ColorInput.Trim()
+  
+  if ($ColorInput.StartsWith('#')) {
+    $ColorInput = $ColorInput.Substring(1)
+  }
+  
+  $ColorInput = $ColorInput.ToUpper()
+  
+  # Expand 3-digit hex to 6-digit
+  if ($ColorInput -match '^[0-9A-F]{3}$') {
+    $ColorInput = [string]::Concat($ColorInput[0], $ColorInput[0], $ColorInput[1], $ColorInput[1], $ColorInput[2], $ColorInput[2])
+  } elseif ($ColorInput -match '^[0-9A-F]{6}$') {
+    # Already valid 6-digit
+  } else {
+    return $null
+  }
+  
+  return "#$ColorInput"
+}
+
+# -----------------------
+# Image file validation (PNG/JPG)
+# Returns: 'png', 'jpg', or $false
+# -----------------------
+
 function Test-IsPngOrJpeg {
   param([string]$Path)
   if (-not (Test-Path $Path)) { return $false }
@@ -131,26 +263,40 @@ function Test-IsPngOrJpeg {
     $read = $fs.Read($bytes, 0, 8)
     $fs.Close()
     if ($read -lt 2) { return $false }
+    
+    # PNG signature: 89 50 4E 47 0D 0A 1A 0A
     $pngSig = @([byte]0x89,[byte]0x50,[byte]0x4E,[byte]0x47,[byte]0x0D,[byte]0x0A,[byte]0x1A,[byte]0x0A)
     $isPng = $true
     for ($i=0; $i -lt 8; $i++) { if ($bytes[$i] -ne $pngSig[$i]) { $isPng = $false; break } }
     if ($isPng) { return 'png' }
+    
+    # JPEG signature: FF D8
     if ($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xD8) { return 'jpg' }
+    
     return $false
   } catch {
     return $false
   }
 }
 
+# -----------------------
+# Copy validated image to script folder
+# Returns: filename (background.png or background.jpg) or $null
+# -----------------------
+
 function Copy-BackgroundIfValid {
   param([string]$SourcePath, [string]$DestFolder)
   if ([string]::IsNullOrWhiteSpace($SourcePath)) { return $null }
   if (-not (Test-Path $SourcePath)) { Write-Warning "Background not found: $SourcePath"; return $null }
+  
   $type = Test-IsPngOrJpeg -Path $SourcePath
   if (-not $type) { Write-Warning "Background file is not a valid PNG or JPG."; return $null }
+  
   if (-not (Test-Path $DestFolder)) { New-Item -Path $DestFolder -ItemType Directory -Force | Out-Null }
+  
   $destName = "background.$type"
   $destPath = Join-Path -Path $DestFolder -ChildPath $destName
+  
   try {
     Copy-Item -Path $SourcePath -Destination $destPath -Force
     Write-Host "Copied background to: $destPath"
@@ -162,8 +308,25 @@ function Copy-BackgroundIfValid {
 }
 
 # -----------------------
-# Edge helpers
+# Discover Windows 11 default wallpapers
+# Returns: hashtable with filename => full path
 # -----------------------
+
+function Get-Windows11Wallpapers {
+  $wallpapers = @{}
+  if (Test-Path $Windows11WallpapersPath) {
+    $files = @(Get-ChildItem -Path $Windows11WallpapersPath -Include "*.jpg", "*.png" -ErrorAction SilentlyContinue)
+    foreach ($file in $files) {
+      $wallpapers[$file.Name] = $file.FullPath
+    }
+  }
+  return $wallpapers
+}
+
+# -----------------------
+# Edge detection and launch (kiosk mode)
+# -----------------------
+
 function Find-Edge {
   $candidates = @(
     "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -185,9 +348,11 @@ function Find-Edge {
   return $null
 }
 
-function Start-EdgeKiosk { param([string]$HtmlFile) 
+function Start-EdgeKiosk {
+  param([string]$HtmlFile)
   $edge = Find-Edge
   if (-not $edge) { Write-Error "Microsoft Edge (msedge.exe) not found."; return $false }
+  
   $uri = "file:///" + ($HtmlFile -replace '\\','/')
   $args = @(
     "--profile-directory=Default",
@@ -201,9 +366,11 @@ function Start-EdgeKiosk { param([string]$HtmlFile)
   return $true
 }
 
-function Start-EdgeNormal { param([string]$HtmlFile)
+function Start-EdgeNormal {
+  param([string]$HtmlFile)
   $edge = Find-Edge
   if (-not $edge) { Write-Error "Microsoft Edge (msedge.exe) not found."; return $false }
+  
   $args = @(
     "--profile-directory=Default",
     "--start-maximized",
@@ -216,28 +383,35 @@ function Start-EdgeNormal { param([string]$HtmlFile)
 }
 
 # -----------------------
-# Startup .bat install/remove (embedded template)
+# Startup .bat installation (ProgramData\Startup)
 # -----------------------
+
 function Install-StartupBat {
   param([string]$ScriptToCall, [string]$HtmlFile, [string]$BatName)
   $startupFolder = Join-Path -Path $env:ProgramData -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup"
   $batPath = Join-Path -Path $startupFolder -ChildPath $BatName
 
-  # Embedded template for the .bat (kept here inside the script)
   $escapedScript = $ScriptToCall -replace '\\','\\'
   $escapedHtml = $HtmlFile -replace '\\','\\'
 
   $batContent = @"
 @echo off
-REM This .bat starts the Create-Kiosk.ps1 in kiosk mode.
+REM This .bat starts LobbyTime.ps1 in kiosk mode.
 REM Place in: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\Start-Kiosk.bat
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action ...
 "@
 
   try {
     if (-not (Test-Path $startupFolder)) { throw "Startup folder not found: $startupFolder" }
+    
     $testFile = Join-Path $startupFolder ".__kiosk_test__.tmp"
-    try { New-Item -Path $testFile -ItemType File -Force | Out-Null; Remove-Item $testFile -Force } catch { throw "No write permission to $startupFolder. Run as Administrator to install the startup .bat." }
+    try { 
+      New-Item -Path $testFile -ItemType File -Force | Out-Null
+      Remove-Item $testFile -Force 
+    } catch { 
+      throw "No write permission to $startupFolder. Run as Administrator to install the startup .bat."
+    }
+    
     $batContent | Out-File -FilePath $batPath -Encoding ASCII -Force
     Write-Host "Created startup .bat at: $batPath"
     return $true
@@ -247,9 +421,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Star
   }
 }
 
-function Remove-StartupBat { param([string]$BatName)
+function Remove-StartupBat {
+  param([string]$BatName)
   $startupFolder = Join-Path -Path $env:ProgramData -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup"
   $batPath = Join-Path -Path $startupFolder -ChildPath $BatName
+  
   if (Test-Path $batPath) {
     try { 
       Remove-Item -Path $batPath -Force
@@ -260,13 +436,16 @@ function Remove-StartupBat { param([string]$BatName)
       return $false 
     }
   } else {
-    Write-Warning "Startup .bat not found: $batPath"; return $false
+    Write-Warning "Startup .bat not found: $batPath"
+    return $false
   }
 }
 
 # -----------------------
 # HTML generation
+# Inlines all CSS and JavaScript for portability
 # -----------------------
+
 function New-KioskHtml {
   param([string]$Path, [PSObject]$Config)
 
@@ -275,6 +454,8 @@ function New-KioskHtml {
 
   if ($Config.BackgroundFileName -and $Config.BackgroundFileName -ne "") {
     $bgCss = "background: url('$($Config.BackgroundFileName)') center/cover no-repeat; background-color:#0b1220;"
+  } elseif ($Config.BackgroundColor -and $Config.BackgroundColor -ne "") {
+    $bgCss = "background:$($Config.BackgroundColor);"
   } else {
     $bgCss = "background:#0b1220;"
   }
@@ -368,31 +549,264 @@ function New-KioskHtml {
 }
 
 # -----------------------
-# Menu helper: Show options with indices and get choice
+# Menu helpers with back/exit navigation
 # -----------------------
+
 function Show-MenuOptions {
-  param([hashtable]$Options)
+  param([hashtable]$Options, [string]$Title = "")
+  if ($Title) {
+    Write-Host $Title
+  }
   $choices = @($Options.Keys)
   for ($i = 0; $i -lt $choices.Count; $i++) {
     Write-Host "$($i+1)) $($choices[$i])"
   }
-  $choice = Read-Host "Enter choice (1-$($choices.Count))"
+  Write-Host "B) Back"
+  Write-Host "X) Exit to Main Menu"
+  Write-Host ""
+  $choice = Read-Host "Enter choice (1-$($choices.Count), B, or X)"
+  
+  if ($choice -eq "B" -or $choice -eq "b") {
+    return @{ "action" = "back" }
+  }
+  if ($choice -eq "X" -or $choice -eq "x") {
+    return @{ "action" = "exit" }
+  }
+  
   $index = [int]$choice - 1
   if ($index -ge 0 -and $index -lt $choices.Count) {
-    return $Options[$choices[$index]]
+    return @{ "action" = "select"; "value" = $Options[$choices[$index]] }
   }
-  return $null
+  return @{ "action" = "none" }
 }
 
 # -----------------------
-# Interactive menu
+# Background menu (Windows 11 wallpapers, preset colors, custom hex)
 # -----------------------
+
+function Show-BackgroundMenu {
+  param([PSObject]$Config)
+  
+  Clear-Host
+  Write-Host "=== Choose Background ==="
+  Write-Host ""
+  Write-Host "1) Windows 11 Default Wallpapers"
+  Write-Host "2) Solid Color (Preset: RGBCMY, Black, Gray)"
+  Write-Host "3) Solid Color (Custom Hex: #RRGGBB or #RGB)"
+  Write-Host "4) Clear background (use default dark blue)"
+  Write-Host "B) Back"
+  Write-Host "X) Exit to Main Menu"
+  Write-Host ""
+  
+  $choice = Read-Host "Enter choice (1-4, B, or X)"
+  
+  if ($choice -eq "B" -or $choice -eq "b") {
+    return @{ "action" = "back" }
+  }
+  if ($choice -eq "X" -or $choice -eq "x") {
+    return @{ "action" = "exit" }
+  }
+  
+  switch ($choice) {
+    '1' {
+      $wallpapers = Get-Windows11Wallpapers
+      if ($wallpapers.Count -eq 0) {
+        Write-Host "No wallpapers found at: $Windows11WallpapersPath"
+        Read-Host "Press Enter to continue..."
+        return @{ "action" = "back" }
+      }
+      
+      Clear-Host
+      Write-Host "=== Windows 11 Default Wallpapers ==="
+      Write-Host ""
+      $wallpaperList = @($wallpapers.Keys | Sort-Object)
+      for ($i = 0; $i -lt $wallpaperList.Count; $i++) {
+        Write-Host "$($i+1)) $($wallpaperList[$i])"
+      }
+      Write-Host "B) Back"
+      Write-Host ""
+      
+      $wallChoice = Read-Host "Enter choice (1-$($wallpaperList.Count)) or B"
+      
+      if ($wallChoice -eq "B" -or $wallChoice -eq "b") {
+        return @{ "action" = "back" }
+      }
+      
+      $wallIndex = [int]$wallChoice - 1
+      if ($wallIndex -ge 0 -and $wallIndex -lt $wallpaperList.Count) {
+        $selectedWallpaper = $wallpapers[$wallpaperList[$wallIndex]]
+        $bgFile = Copy-BackgroundIfValid -SourcePath $selectedWallpaper -DestFolder $ScriptFolder
+        if ($bgFile) {
+          Write-Host "Wallpaper selected: $($wallpaperList[$wallIndex])"
+          Read-Host "Press Enter to continue..."
+          return @{ "action" = "select"; "fileName" = $bgFile; "color" = "" }
+        }
+      }
+      return @{ "action" = "back" }
+    }
+    
+    '2' {
+      Clear-Host
+      Write-Host "=== Solid Color (Preset) ==="
+      Write-Host ""
+      $result = Show-MenuOptions $BackgroundColorPresets
+      if ($result.action -eq "select") {
+        Write-Host "Color selected: $($result.value)"
+        Read-Host "Press Enter to continue..."
+        return @{ "action" = "select"; "fileName" = ""; "color" = $result.value }
+      }
+      return @{ "action" = "back" }
+    }
+    
+    '3' {
+      Clear-Host
+      Write-Host "=== Solid Color (Custom Hex) ==="
+      Write-Host ""
+      Write-Host "Enter a hex color value:"
+      Write-Host "  - 6-digit: #FFFFFF or FFFFFF"
+      Write-Host "  - 3-digit: #FFF or FFF (expands to #FFFFFF)"
+      Write-Host "  - Case insensitive"
+      Write-Host ""
+      
+      $hexInput = Read-Host "Enter hex color"
+      $normalized = Normalize-HexColor -ColorInput $hexInput
+      
+      if ($normalized) {
+        Write-Host "Color selected: $normalized"
+        Read-Host "Press Enter to continue..."
+        return @{ "action" = "select"; "fileName" = ""; "color" = $normalized }
+      } else {
+        Write-Warning "Invalid hex color format. Use #FFFFFF, FFFFFF, #FFF, or FFF"
+        Read-Host "Press Enter to continue..."
+        return @{ "action" = "back" }
+      }
+    }
+    
+    '4' {
+      Write-Host "Background cleared (using default dark blue)"
+      Read-Host "Press Enter to continue..."
+      return @{ "action" = "select"; "fileName" = ""; "color" = "" }
+    }
+    
+    default {
+      Write-Warning "Invalid option"
+      return @{ "action" = "back" }
+    }
+  }
+}
+
+# -----------------------
+# Settings submenu
+# -----------------------
+
+function Edit-Settings {
+  param([PSObject]$Config, [string]$ConfigPath)
+  $continueSettings = $true
+  while ($continueSettings) {
+    Clear-Host
+    Write-Host "=== Edit Settings ==="
+    Write-Host ""
+
+    # Background selection
+    Write-Host "Background (currently: $(if ($Config.BackgroundFileName) { $Config.BackgroundFileName } elseif ($Config.BackgroundColor) { $Config.BackgroundColor } else { 'Default (dark blue)' }))"
+    $result = Show-BackgroundMenu -Config $Config
+    if ($result.action -eq "select") {
+      $Config.BackgroundFileName = $result.fileName
+      $Config.BackgroundColor = $result.color
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Time Font Size (currently: $($Config.TimeFontSize))"
+    $result = Show-MenuOptions $FontSizePresets
+    if ($result.action -eq "select") {
+      $Config.TimeFontSize = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Date Font Size (currently: $($Config.DateFontSize))"
+    $result = Show-MenuOptions $FontSizePresets
+    if ($result.action -eq "select") {
+      $Config.DateFontSize = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Font Family (currently: $($Config.FontFamily))"
+    $result = Show-MenuOptions $FontFamilyPresets
+    if ($result.action -eq "select") {
+      $Config.FontFamily = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Font Color (currently: $($Config.FontColor))"
+    $result = Show-MenuOptions $FontColorPresets
+    if ($result.action -eq "select") {
+      $Config.FontColor = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Time Format (currently: $($Config.TimeFormat))"
+    $result = Show-MenuOptions $TimeFormatPresets
+    if ($result.action -eq "select") {
+      $Config.TimeFormat = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+    
+    if (-not $continueSettings) { break }
+    Write-Host ""
+    Write-Host "Date Format (currently: $($Config.DateFormat))"
+    $result = Show-MenuOptions $DateFormatPresets
+    if ($result.action -eq "select") {
+      $Config.DateFormat = $result.value
+    } elseif ($result.action -eq "exit") {
+      $continueSettings = $false
+      if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+      break
+    }
+
+    if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
+    $continueSettings = $false
+  }
+}
+
+# -----------------------
+# Main menu
+# -----------------------
+
 function Show-Menu {
   param([PSObject]$Config, [string]$ConfigPath)
   $continueMenu = $true
   while ($continueMenu) {
     Clear-Host
-    Write-Host "Kiosk helper - choose an action:"
+    Write-Host "=== LobbyTime v2.0 - Kiosk Display Helper ==="
+    Write-Host ""
     Write-Host "1) Create HTML only"
     Write-Host "2) Create HTML and launch Edge (Kiosk Fullscreen)"
     Write-Host "3) Create HTML and launch Edge (Normal Window)"
@@ -402,6 +816,7 @@ function Show-Menu {
     Write-Host "7) Exit"
     Write-Host ""
     Write-Host "Current settings (from config):"
+    Write-Host "  Background: $(if ($Config.BackgroundFileName) { $Config.BackgroundFileName } elseif ($Config.BackgroundColor) { $Config.BackgroundColor } else { 'Default (dark blue)' })"
     Write-Host "  Time Font Size: $($Config.TimeFontSize)"
     Write-Host "  Date Font Size: $($Config.DateFontSize)"
     Write-Host "  Font Family: $($Config.FontFamily)"
@@ -456,42 +871,7 @@ function Show-Menu {
          Read-Host "Press Enter to continue..."
       }
       '6' {
-         Clear-Host
-         Write-Host "=== Edit Settings ==="
-         Write-Host ""
-
-         Write-Host "Time Font Size (currently: $($Config.TimeFontSize))"
-         $selected = Show-MenuOptions $FontSizePresets
-         if ($selected) { $Config.TimeFontSize = $selected }
-         Write-Host ""
-
-         Write-Host "Date Font Size (currently: $($Config.DateFontSize))"
-         $selected = Show-MenuOptions $FontSizePresets
-         if ($selected) { $Config.DateFontSize = $selected }
-         Write-Host ""
-
-         Write-Host "Font Family (currently: $($Config.FontFamily))"
-         $selected = Show-MenuOptions $FontFamilyPresets
-         if ($selected) { $Config.FontFamily = $selected }
-         Write-Host ""
-
-         Write-Host "Font Color (currently: $($Config.FontColor))"
-         $selected = Show-MenuOptions $FontColorPresets
-         if ($selected) { $Config.FontColor = $selected }
-         Write-Host ""
-
-         Write-Host "Time Format (currently: $($Config.TimeFormat))"
-         $selected = Show-MenuOptions $TimeFormatPresets
-         if ($selected) { $Config.TimeFormat = $selected }
-         Write-Host ""
-
-         Write-Host "Date Format (currently: $($Config.DateFormat))"
-         $selected = Show-MenuOptions $DateFormatPresets
-         if ($selected) { $Config.DateFormat = $selected }
-         Write-Host ""
-
-         if (-not $DebugMode) { Save-Config -ConfigPath $ConfigPath -Config $Config | Out-Null }
-         Read-Host "Press Enter to continue..."
+         Edit-Settings -Config $Config -ConfigPath $ConfigPath
       }
       '7' { $continueMenu = $false }
       default { Write-Warning "Invalid option"; Read-Host "Press Enter to continue..." }
@@ -500,13 +880,14 @@ function Show-Menu {
 }
 
 # -----------------------
-# Main: load config, create if missing, apply CLI overrides, then dispatch
+# Main execution
 # -----------------------
+
 $ConfigPath = Get-ConfigPath -ScriptPath $ScriptPath
 $ConfigExistsBefore = Test-Path $ConfigPath
 $config = Load-Config -ConfigPath $ConfigPath
 
-# If config didn't exist before and not DebugMode, create it now (persist defaults)
+# Create config file if it doesn't exist
 if (-not $ConfigExistsBefore -and -not $DebugMode) {
   Save-Config -ConfigPath $ConfigPath -Config $config | Out-Null
   Write-Host "Created new config at $ConfigPath with defaults."
@@ -514,7 +895,7 @@ if (-not $ConfigExistsBefore -and -not $DebugMode) {
   Write-Host "Config would be created at $ConfigPath, but DebugMode prevents writing."
 }
 
-# Apply CLI-provided overrides
+# Apply CLI parameter overrides
 if ($PSBoundParameters.ContainsKey('BackgroundImage') -and $BackgroundImage) {
   $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage -DestFolder $ScriptFolder
   if ($copied) { $config.BackgroundFileName = $copied }
@@ -526,7 +907,7 @@ if ($PSBoundParameters.ContainsKey('FontColor') -and $FontColor) { $config.FontC
 if ($PSBoundParameters.ContainsKey('TimeFormat') -and $TimeFormat) { $config.TimeFormat = $TimeFormat }
 if ($PSBoundParameters.ContainsKey('DateFormat') -and $DateFormat) { $config.DateFormat = $DateFormat }
 
-# Save updated config unless DebugMode
+# Save config with CLI overrides (unless DebugMode)
 if (-not $DebugMode) {
   Save-Config -ConfigPath $ConfigPath -Config $config | Out-Null
 } else {
