@@ -170,7 +170,7 @@ function Install-StartupBat {
 @echo off
 REM This .bat starts the Create-Kiosk.ps1 in kiosk mode.
 REM Place in: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\Start-Kiosk.bat
-powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action kiosk -HtmlPath `"$escapedHtml`"' -WindowStyle Hidden"
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File `"$escapedScript`" -Action ...
 "@
 
   try {
@@ -190,7 +190,14 @@ function Remove-StartupBat { param([string]$BatName)
   $startupFolder = Join-Path -Path $env:ProgramData -ChildPath "Microsoft\Windows\Start Menu\Programs\Startup"
   $batPath = Join-Path -Path $startupFolder -ChildPath $BatName
   if (Test-Path $batPath) {
-    try { Remove-Item -Path $batPath -Force; Write-Host "Removed: $batPath"; return $true } catch { Write-Error "Failed to remove $batPath: $_"; return $false }
+    try { 
+      Remove-Item -Path $batPath -Force
+      Write-Host "Removed: $batPath"
+      return $true 
+    } catch { 
+      Write-Error "Failed to remove $($batPath): $_"
+      return $false 
+    }
   } else {
     Write-Warning "Startup .bat not found: $batPath"; return $false
   }
