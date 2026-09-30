@@ -18,7 +18,7 @@ color customization, and date/time format options.
 - Interactive menu with back/exit navigation for settings
 - Font customization: size, family, color presets
 - Time/date format tokens for custom display
-- Copies validated PNG/JPG backgrounds into script folder
+- Copies validated PNG/JPG backgrounds into current working directory
 - CLI parameter overrides (saved unless -DebugMode is used)
 - HTML/CSS inline for single-file portability
 
@@ -290,22 +290,21 @@ function Test-IsPngOrJpeg {
 }
 
 # -----------------------
-# Copy validated image to script folder
-# Returns: filename (background.png or background.jpg) or $null
+# Copy validated image to current working directory (PWD)
+# Returns: relative path (background.png or background.jpg) or $null
 # -----------------------
 
 function Copy-BackgroundIfValid {
-  param([string]$SourcePath, [string]$DestFolder)
+  param([string]$SourcePath)
   if ([string]::IsNullOrWhiteSpace($SourcePath)) { return $null }
   if (-not (Test-Path $SourcePath)) { Write-Warning "Background not found: $SourcePath"; return $null }
   
   $type = Test-IsPngOrJpeg -Path $SourcePath
   if (-not $type) { Write-Warning "Background file is not a valid PNG or JPG."; return $null }
   
-  if (-not (Test-Path $DestFolder)) { New-Item -Path $DestFolder -ItemType Directory -Force | Out-Null }
-  
+  $destFolder = Get-Location
   $destName = "background.$type"
-  $destPath = Join-Path -Path $DestFolder -ChildPath $destName
+  $destPath = Join-Path -Path $destFolder -ChildPath $destName
   
   try {
     Copy-Item -Path $SourcePath -Destination $destPath -Force
@@ -397,6 +396,7 @@ function Start-EdgeNormal {
 # -----------------------
 # HTML generation
 # Inlines all CSS and JavaScript for portability
+# Injects relative background path into HTML template
 # -----------------------
 
 function New-KioskHtml {
@@ -405,6 +405,7 @@ function New-KioskHtml {
   $dir = Split-Path -Path $Path -Parent
   if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
 
+  # Build background CSS with correct relative path
   if ($Config.BackgroundFileName -and $Config.BackgroundFileName -ne "") {
     $bgCss = "background: url('$($Config.BackgroundFileName)') center/cover no-repeat; background-color:#0b1220;"
   } elseif ($Config.BackgroundColor -and $Config.BackgroundColor -ne "") {
@@ -588,7 +589,7 @@ function Show-BackgroundMenu {
       $wallIndex = [int]$wallChoice - 1
       if ($wallIndex -ge 0 -and $wallIndex -lt $wallpaperList.Count) {
         $selectedWallpaper = $wallpapers[$wallpaperList[$wallIndex]]
-        $bgFile = Copy-BackgroundIfValid -SourcePath $selectedWallpaper -DestFolder $ScriptFolder
+        $bgFile = Copy-BackgroundIfValid -SourcePath $selectedWallpaper
         if ($bgFile) {
           Write-Host "Wallpaper selected: $($wallpaperList[$wallIndex])"
           Read-Host "Press Enter to continue..."
@@ -819,7 +820,7 @@ if (-not $ConfigExistsBefore -and -not $DebugMode) {
 
 # Apply CLI parameter overrides
 if ($PSBoundParameters.ContainsKey('BackgroundImage') -and $BackgroundImage) {
-  $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage -DestFolder $ScriptFolder
+  $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage
   if ($copied) { Set-ConfigProperty -Config $config -PropertyName "BackgroundFileName" -Value $copied }
 }
 if ($PSBoundParameters.ContainsKey('TimeFontSize') -and $TimeFontSize) { Set-ConfigProperty -Config $config -PropertyName "TimeFontSize" -Value $TimeFontSize }
