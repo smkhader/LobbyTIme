@@ -6,7 +6,7 @@
   "FontFamily":  "Helvetica, Arial, sans-serif",
   "FontColor":  "#00FF00",
   "OverlayOpacity":  0.18,
-  "TimeFormat":  "hh:mm:ss A",
+  "TimeFormat":  "HH:mm:ss A",
   "DateFormat":  "ddd, MMM D, YYYY",
   "TextShadow":  "0 2px 6px rgba(0,0,0,0.6)"
 }
