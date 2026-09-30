@@ -18,7 +18,7 @@ color customization, and date/time format options.
 - Interactive menu with back/exit navigation for settings
 - Font customization: size, family, color presets
 - Time/date format tokens for custom display
-- Copies validated PNG/JPG backgrounds into current working directory
+- Copies validated PNG/JPG backgrounds into HTML folder with relative path injection
 - CLI parameter overrides (saved unless -DebugMode is used)
 - HTML/CSS inline for single-file portability
 
@@ -64,7 +64,7 @@ powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1
 powershell.exe -ExecutionPolicy bypass -file .\LobbyTime.ps1 -Action kiosk -BackgroundImage "C:\path\to\image.jpg"
 
 .VERSION
-2.1 - Removed background prompts from HTML creation options, removed autorun functionality, fixed property assignment errors
+2.2 - Fixed background path resolution: copies to HTML folder, injects correct relative paths
 
 .NOTES
 - Requires Windows 7+ and PowerShell 3+
@@ -290,21 +290,22 @@ function Test-IsPngOrJpeg {
 }
 
 # -----------------------
-# Copy validated image to current working directory (PWD)
-# Returns: relative path (background.png or background.jpg) or $null
+# Copy validated image to HTML folder
+# Returns: filename (background.png or background.jpg) or $null
 # -----------------------
 
 function Copy-BackgroundIfValid {
-  param([string]$SourcePath)
+  param([string]$SourcePath, [string]$HtmlFolderPath)
   if ([string]::IsNullOrWhiteSpace($SourcePath)) { return $null }
   if (-not (Test-Path $SourcePath)) { Write-Warning "Background not found: $SourcePath"; return $null }
   
   $type = Test-IsPngOrJpeg -Path $SourcePath
   if (-not $type) { Write-Warning "Background file is not a valid PNG or JPG."; return $null }
   
-  $destFolder = Get-Location
+  if (-not (Test-Path $HtmlFolderPath)) { New-Item -Path $HtmlFolderPath -ItemType Directory -Force | Out-Null }
+  
   $destName = "background.$type"
-  $destPath = Join-Path -Path $destFolder -ChildPath $destName
+  $destPath = Join-Path -Path $HtmlFolderPath -ChildPath $destName
   
   try {
     Copy-Item -Path $SourcePath -Destination $destPath -Force
@@ -396,7 +397,7 @@ function Start-EdgeNormal {
 # -----------------------
 # HTML generation
 # Inlines all CSS and JavaScript for portability
-# Injects relative background path into HTML template
+# Background file is copied to same folder as HTML and referenced with relative path
 # -----------------------
 
 function New-KioskHtml {
@@ -405,7 +406,6 @@ function New-KioskHtml {
   $dir = Split-Path -Path $Path -Parent
   if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
 
-  # Build background CSS with correct relative path
   if ($Config.BackgroundFileName -and $Config.BackgroundFileName -ne "") {
     $bgCss = "background: url('$($Config.BackgroundFileName)') center/cover no-repeat; background-color:#0b1220;"
   } elseif ($Config.BackgroundColor -and $Config.BackgroundColor -ne "") {
@@ -589,7 +589,8 @@ function Show-BackgroundMenu {
       $wallIndex = [int]$wallChoice - 1
       if ($wallIndex -ge 0 -and $wallIndex -lt $wallpaperList.Count) {
         $selectedWallpaper = $wallpapers[$wallpaperList[$wallIndex]]
-        $bgFile = Copy-BackgroundIfValid -SourcePath $selectedWallpaper
+        $htmlFolder = Split-Path -Parent $HtmlPath
+        $bgFile = Copy-BackgroundIfValid -SourcePath $selectedWallpaper -HtmlFolderPath $htmlFolder
         if ($bgFile) {
           Write-Host "Wallpaper selected: $($wallpaperList[$wallIndex])"
           Read-Host "Press Enter to continue..."
@@ -759,7 +760,7 @@ function Show-Menu {
   $continueMenu = $true
   while ($continueMenu) {
     Clear-Host
-    Write-Host "=== LobbyTime v2.1 - Kiosk Display Helper ==="
+    Write-Host "=== LobbyTime v2.2 - Kiosk Display Helper ==="
     Write-Host ""
     Write-Host "1) Create HTML only"
     Write-Host "2) Create HTML and launch Edge (Kiosk Fullscreen)"
@@ -820,7 +821,8 @@ if (-not $ConfigExistsBefore -and -not $DebugMode) {
 
 # Apply CLI parameter overrides
 if ($PSBoundParameters.ContainsKey('BackgroundImage') -and $BackgroundImage) {
-  $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage
+  $htmlFolder = Split-Path -Parent $HtmlPath
+  $copied = Copy-BackgroundIfValid -SourcePath $BackgroundImage -HtmlFolderPath $htmlFolder
   if ($copied) { Set-ConfigProperty -Config $config -PropertyName "BackgroundFileName" -Value $copied }
 }
 if ($PSBoundParameters.ContainsKey('TimeFontSize') -and $TimeFontSize) { Set-ConfigProperty -Config $config -PropertyName "TimeFontSize" -Value $TimeFontSize }
