@@ -99,7 +99,7 @@ $ScriptFolder = Split-Path -Parent $ScriptPath
 if (-not $HtmlPath) { $HtmlPath = Join-Path -Path $ScriptFolder -ChildPath "kiosk.html" }
 
 # Windows 11 default wallpapers location
-$Windows11WallpapersPath = "$env:WINDIR\Web\Wallpaper\Windows"
+$Windows11WallpapersPath = "$env:WINDIR\Web\Screen"
 
 # -----------------------
 # Font size presets
